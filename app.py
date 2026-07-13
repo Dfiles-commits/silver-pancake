@@ -1,13 +1,21 @@
-# 🎙️ ГОЛОСОВОЙ ЧАТ — Render.com
-from flask import Flask, render_template_string, request
+from flask import Flask, render_template_string, request, jsonify
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from flask_cors import CORS
-import secrets, os, time
+import secrets, time, json
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = secrets.token_hex(16)
 CORS(app)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+
+# ВКЛЮЧАЕМ POLLING (ОБХОДИМ БЛОКИРОВКУ WEBSOCKET)
+socketio = SocketIO(
+    app, 
+    cors_allowed_origins="*", 
+    async_mode='threading',
+    ping_timeout=60,
+    ping_interval=25,
+    transports=['polling', 'websocket']  # <-- ВАЖНО: сначала polling, потом websocket
+)
 
 rooms_data = {}
 user_names = {}
@@ -26,6 +34,7 @@ body{font-family:'Segoe UI',Arial,sans-serif;background:#0a0a1a;color:#ccc;heigh
 h1{text-align:center;color:#ffd700;font-size:1.2em;margin-bottom:6px}
 #lobby{flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:10px}
 #lobby input{padding:10px;width:100%;max-width:280px;background:#1a1a2e;border:2px solid #4a4a6a;border-radius:10px;color:#fff;font-size:15px;text-align:center}
+#lobby input:focus{border-color:#ffd700;outline:none}
 .btn{padding:10px 20px;border:none;border-radius:10px;font-size:15px;font-weight:bold;color:#fff;cursor:pointer;width:100%;max-width:280px}
 .btn:hover{transform:scale(1.02);filter:brightness(1.2)}
 .btn-create{background:#2a6a4a}
@@ -92,7 +101,15 @@ h1{text-align:center;color:#ffd700;font-size:1.2em;margin-bottom:6px}
 </div>
 <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
 <script>
-const socket = io({transports:['websocket','polling']});
+// ПРИНУДИТЕЛЬНО ИСПОЛЬЗУЕМ POLLING (ОБХОДИМ БЛОКИРОВКУ)
+const socket = io({
+    transports: ['polling', 'websocket'],
+    upgrade: false,
+    reconnection: true,
+    reconnectionAttempts: 10,
+    reconnectionDelay: 1000
+});
+
 let roomId = null, myName = '', audioCtx = null, mediaStream = null, audioProcessor = null, isMicOn = false;
 
 function initAudio(){ if(!audioCtx) audioCtx = new AudioContext(); }
@@ -140,7 +157,15 @@ function sendChat(){ const inp = document.getElementById('chatInput'), msg = inp
 function addSystemMsg(msg){ document.getElementById('chatMsgs').innerHTML += `<div class="msg-system">📢 ${msg}</div>`; }
 function addChatMsg(s,m,c){ document.getElementById('chatMsgs').innerHTML += `<div class="${c}"><b>${s}:</b> ${m}</div>`; }
 function updateMembers(members){ let html='<span style="color:#666;font-size:0.7em">👥 Участники:</span> '; members.forEach(n=>{ html+=`<span class="${n===myName?'member you':'member'}">${n}${n===myName?' (Вы)':''}</span>`; }); document.getElementById('members').innerHTML=html; }
-socket.on('connect', ()=>{ addSystemMsg('✅ Подключено'); });
+
+socket.on('connect', ()=>{ 
+    addSystemMsg('✅ Подключено к серверу');
+    console.log('Socket connected!');
+});
+socket.on('connect_error', (err)=>{ 
+    console.error('Ошибка подключения:', err);
+    addSystemMsg('⚠️ Ошибка подключения, переподключаемся...');
+});
 socket.on('room_created', (d)=>{ roomId=d.room_id; document.getElementById('roomId').textContent=roomId; document.getElementById('lobby').style.display='none'; document.getElementById('game').style.display='flex'; addSystemMsg('🏠 Комната создана! ID: '+roomId); updateMembers(d.members); });
 socket.on('room_joined', (d)=>{ document.getElementById('roomId').textContent=roomId; document.getElementById('lobby').style.display='none'; document.getElementById('game').style.display='flex'; addSystemMsg('✅ Вы в комнате'); updateMembers(d.members); });
 socket.on('room_error', (d)=>{ alert('❌ '+d.msg); });
@@ -150,6 +175,7 @@ socket.on('chat_broadcast', (d)=>{ if(d.sender!==myName) addChatMsg(d.sender,d.m
 socket.on('system_msg', (d)=>{ addSystemMsg(d.msg); });
 socket.on('disconnect', ()=>{ addSystemMsg('❌ Соединение потеряно...'); });
 socket.on('reconnect', ()=>{ addSystemMsg('✅ Переподключено'); if(roomId) socket.emit('join_room',{room:roomId,name:myName}); });
+
 document.addEventListener('click', ()=>{ initAudio(); }, {once:true});
 </script>
 </body>
@@ -235,4 +261,4 @@ if __name__ == '__main__':
     print("="*60)
     print("\n📱 ТВОЯ ССЫЛКА: http://127.0.0.1:5000/")
     print("="*60 + "\n")
-    socketio.run(app, host='0.0.0.0', port=5000, debug=False, allow_unsafe_werkzeug=True)
+    socketio.run(app, host='0.0.0.0', port=10000, debug=False, allow_unsafe_werkzeug=True)
