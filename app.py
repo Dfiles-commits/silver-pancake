@@ -1,20 +1,20 @@
-from flask import Flask, render_template_string, request, jsonify
+from flask import Flask, render_template_string, request
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from flask_cors import CORS
-import secrets, time, json
+import secrets, time
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = secrets.token_hex(16)
 CORS(app)
 
-# ВКЛЮЧАЕМ POLLING (ОБХОДИМ БЛОКИРОВКУ WEBSOCKET)
+# РАЗРЕШАЕМ POLLING (ОБХОДИМ БЛОКИРОВКУ WEBSOCKET)
 socketio = SocketIO(
     app, 
     cors_allowed_origins="*", 
     async_mode='threading',
     ping_timeout=60,
     ping_interval=25,
-    transports=['polling', 'websocket']  # <-- ВАЖНО: сначала polling, потом websocket
+    transports=['polling', 'websocket']
 )
 
 rooms_data = {}
@@ -256,9 +256,6 @@ def handle_disconnect():
         del user_names[request.sid]
 
 if __name__ == '__main__':
-    print("\n" + "="*60)
-    print("🎙️ ГОЛОСОВОЙ ЧАТ — ЗАПУСК")
-    print("="*60)
-    print("\n📱 ТВОЯ ССЫЛКА: http://127.0.0.1:5000/")
-    print("="*60 + "\n")
-    socketio.run(app, host='0.0.0.0', port=10000, debug=False, allow_unsafe_werkzeug=True)
+    import os
+    port = int(os.environ.get("PORT", 10000))
+    socketio.run(app, host='0.0.0.0', port=port, debug=False, allow_unsafe_werkzeug=True)
